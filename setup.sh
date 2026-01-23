@@ -126,7 +126,12 @@ link_lazyvim() {
   say "Linked ~/.config/nvim -> $REPO_DIR/nvim"
 }
 
+install_fzf() {
+  sudo apt install fzf
+}
+
 install_latest_nvim
 link_lazyvim
 install_tmux
 link_tmux
+install_fzf
