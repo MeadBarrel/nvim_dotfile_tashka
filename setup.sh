@@ -54,6 +54,70 @@ install_latest_nvim() {
   say "Installed: $(nvim --version | head -n 1)"
 }
 
+install_tmux() {
+
+  if have tmux; then
+    say "tmux already installed: $(tmux -V)"
+    return 0
+  fi
+
+  # Prefer apt-get over apt for scripting
+  if have apt-get; then
+    say "Installing tmux via apt-get"
+    sudo apt-get update -y
+    sudo apt-get install -y tmux
+    return 0
+
+  fi
+
+  if have apk; then
+
+    say "Installing tmux via apk"
+    sudo apk add --no-cache tmux
+    return 0
+  fi
+
+  if have dnf; then
+    say "Installing tmux via dnf"
+
+    sudo dnf install -y tmux
+    return 0
+  fi
+
+  if have yum; then
+    say "Installing tmux via yum"
+    sudo yum install -y tmux
+    return 0
+  fi
+
+  if have pacman; then
+    say "Installing tmux via pacman"
+
+    sudo pacman -Sy --noconfirm tmux
+
+    return 0
+  fi
+
+  say "No supported package manager found; skipping tmux install (config will still be linked)."
+  return 0
+}
+
+link_tmux() {
+  # Classic tmux location: ~/.tmux.conf
+  if [ -f "$REPO_DIR/tmux/.tmux.conf" ]; then
+    ln -sf "$REPO_DIR/tmux/.tmux.conf" "$HOME/.tmux.conf"
+    say "Linked ~/.tmux.conf -> $REPO_DIR/tmux/.tmux.conf"
+  fi
+
+  # Optional XDG location: ~/.config/tmux/tmux.conf
+  if [ -f "$REPO_DIR/tmux/.config/tmux/tmux.conf" ]; then
+    mkdir -p "$HOME/.config/tmux"
+    ln -sf "$REPO_DIR/tmux/.config/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
+    say "Linked ~/.config/tmux/tmux.conf -> $REPO_DIR/tmux/.config/tmux/tmux.conf"
+  fi
+
+}
+
 # ---- 2) Link your LazyVim config ----
 link_lazyvim() {
   mkdir -p "$HOME/.config"
@@ -64,3 +128,5 @@ link_lazyvim() {
 
 install_latest_nvim
 link_lazyvim
+install_tmux
+link_tmux
