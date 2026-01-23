@@ -127,7 +127,8 @@ link_lazyvim() {
 }
 
 install_fzf() {
-  sudo apt install fzf
+  git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
+  ~/.fzf/install
 }
 
 install_latest_nvim
