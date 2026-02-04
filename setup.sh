@@ -136,3 +136,5 @@ link_lazyvim
 install_tmux
 link_tmux
 install_fzf
+
+curl -sSL https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info | tic -x -
