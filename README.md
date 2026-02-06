@@ -6,7 +6,7 @@ to reduce artifacts
 
 Do not forget 
 
-`export TERM=alacritty`
+`export TERM=xterm-256color`
 
 Run tmux as 
 
