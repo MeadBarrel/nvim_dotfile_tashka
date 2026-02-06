@@ -7,3 +7,7 @@ to reduce artifacts
 Do not forget 
 
 `export TERM=alacritty`
+
+Run tmux as 
+
+`tmux -u`
