@@ -5,7 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 say() { printf '[dotfiles] %s\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-NVIM_VERSION="${NVIM_VERSION:-v0.10.4}"
+NVIM_VERSION="${NVIM_VERSION:-v0.12.1}"
 
 ensure_local_bin_on_path() {
   mkdir -p "$HOME/.local/bin"
