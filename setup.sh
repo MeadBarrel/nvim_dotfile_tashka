@@ -17,6 +17,30 @@ ensure_local_bin_on_path() {
   export PATH="$HOME/.local/bin:$PATH"
 }
 
+disable_broken_yarn_repo() {
+  if ! have apt-get; then
+    return 0
+  fi
+
+  if grep -Rqs "dl.yarnpkg.com" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+    say "Disabling Yarn apt source because its signing key is broken"
+    sudo sh -c '
+      for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list; do
+        [ -e "$f" ] || continue
+        if grep -qs "dl.yarnpkg.com" "$f"; then
+          cp "$f" "$f.bak-dotfiles" 2>/dev/null || true
+          sed -i "s|^deb |# deb |g" "$f" 2>/dev/null || true
+        fi
+      done
+    '
+  fi
+}
+
+apt_update_safe() {
+  disable_broken_yarn_repo
+  sudo apt-get update
+}
+
 install_nvim_from_source() {
   if have nvim; then
     say "nvim already installed: $(nvim --version | head -n 1)"
@@ -29,7 +53,7 @@ install_nvim_from_source() {
   fi
 
   say "Installing build dependencies for Neovim ${NVIM_VERSION}"
-  sudo apt-get update
+  apt_update_safe
   sudo apt-get install -y \
     ninja-build \
     gettext \
@@ -67,21 +91,7 @@ install_tmux() {
 
   if have apt-get; then
     say "Installing tmux via apt-get"
-
-    # If apt is broken because of an optional Yarn repo, disable it temporarily.
-    if grep -Rqs "dl.yarnpkg.com" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
-      say "Temporarily disabling broken Yarn apt source"
-      sudo sh -c '
-        for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-          [ -e "$f" ] || continue
-          if grep -qs "dl.yarnpkg.com" "$f"; then
-            mv "$f" "$f.disabled-by-dotfiles"
-          fi
-        done
-      '
-    fi
-
-    sudo apt-get update
+    apt_update_safe
     sudo apt-get install -y tmux
     return 0
   fi
