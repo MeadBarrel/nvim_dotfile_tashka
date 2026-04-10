@@ -5,73 +5,88 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 say() { printf '[dotfiles] %s\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# ---- 1) Install latest *stable* Neovim from GitHub releases ----
-install_latest_nvim() {
-  if ! have curl; then
-    say "curl missing; cannot install latest neovim"
-    exit 1
-  fi
-  if ! have tar; then
-    say "tar missing; cannot install latest neovim"
-    exit 1
-  fi
+NVIM_VERSION="${NVIM_VERSION:-v0.10.4}"
 
-  arch="$(uname -m)"
-  case "$arch" in
-  x86_64 | amd64) asset="nvim-linux-x86_64.tar.gz" ;;
-  aarch64 | arm64) asset="nvim-linux-arm64.tar.gz" ;;
-  *)
-    say "Unsupported arch: $arch (supported: x86_64, arm64)"
-    exit 1
-
-    ;;
-  esac
-
-  url="https://github.com/neovim/neovim/releases/latest/download/${asset}"
-  say "Downloading latest stable Neovim: $url"
-
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
-
-  curl -fsSL "$url" -o "$tmp/nvim.tar.gz"
-  tar -xzf "$tmp/nvim.tar.gz" -C "$tmp"
-
-  mkdir -p "$HOME/.local"
-  rm -rf "$HOME/.local/nvim"
-  mv "$tmp/nvim-linux-"* "$HOME/.local/nvim"
-
+ensure_local_bin_on_path() {
   mkdir -p "$HOME/.local/bin"
-  ln -sf "$HOME/.local/nvim/bin/nvim" "$HOME/.local/bin/nvim"
-
-  # Ensure PATH for future shells
 
   if ! grep -q 'HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$HOME/.bashrc"
   fi
 
   export PATH="$HOME/.local/bin:$PATH"
+}
+
+install_nvim_from_source() {
+  if have nvim; then
+    say "nvim already installed: $(nvim --version | head -n 1)"
+    return 0
+  fi
+
+  if ! have apt-get; then
+    say "This script currently expects apt-get to build Neovim on this system."
+    exit 1
+  fi
+
+  say "Installing build dependencies for Neovim ${NVIM_VERSION}"
+  sudo apt-get update
+  sudo apt-get install -y \
+    ninja-build \
+    gettext \
+    cmake \
+    unzip \
+    curl \
+    build-essential \
+    git
+
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  say "Cloning Neovim ${NVIM_VERSION}"
+  git clone --depth 1 --branch "$NVIM_VERSION" https://github.com/neovim/neovim.git "$tmp/neovim"
+
+  say "Building Neovim ${NVIM_VERSION} from source"
+  cd "$tmp/neovim"
+  make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$HOME/.local"
+
+  say "Installing Neovim ${NVIM_VERSION} into $HOME/.local"
+  make install
+
+  ensure_local_bin_on_path
+  hash -r
 
   say "Installed: $(nvim --version | head -n 1)"
 }
 
 install_tmux() {
-
   if have tmux; then
     say "tmux already installed: $(tmux -V)"
     return 0
   fi
 
-  # Prefer apt-get over apt for scripting
   if have apt-get; then
     say "Installing tmux via apt-get"
-    sudo apt-get update -y
+
+    # If apt is broken because of an optional Yarn repo, disable it temporarily.
+    if grep -Rqs "dl.yarnpkg.com" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+      say "Temporarily disabling broken Yarn apt source"
+      sudo sh -c '
+        for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+          [ -e "$f" ] || continue
+          if grep -qs "dl.yarnpkg.com" "$f"; then
+            mv "$f" "$f.disabled-by-dotfiles"
+          fi
+        done
+      '
+    fi
+
+    sudo apt-get update
     sudo apt-get install -y tmux
     return 0
-
   fi
 
   if have apk; then
-
     say "Installing tmux via apk"
     sudo apk add --no-cache tmux
     return 0
@@ -79,7 +94,6 @@ install_tmux() {
 
   if have dnf; then
     say "Installing tmux via dnf"
-
     sudo dnf install -y tmux
     return 0
   fi
@@ -92,33 +106,26 @@ install_tmux() {
 
   if have pacman; then
     say "Installing tmux via pacman"
-
     sudo pacman -Sy --noconfirm tmux
-
     return 0
   fi
 
-  say "No supported package manager found; skipping tmux install (config will still be linked)."
-  return 0
+  say "No supported package manager found; skipping tmux install."
 }
 
 link_tmux() {
-  # Classic tmux location: ~/.tmux.conf
   if [ -f "$REPO_DIR/tmux/.tmux.conf" ]; then
     ln -sf "$REPO_DIR/tmux/.tmux.conf" "$HOME/.tmux.conf"
     say "Linked ~/.tmux.conf -> $REPO_DIR/tmux/.tmux.conf"
   fi
 
-  # Optional XDG location: ~/.config/tmux/tmux.conf
   if [ -f "$REPO_DIR/tmux/.config/tmux/tmux.conf" ]; then
     mkdir -p "$HOME/.config/tmux"
     ln -sf "$REPO_DIR/tmux/.config/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
     say "Linked ~/.config/tmux/tmux.conf -> $REPO_DIR/tmux/.config/tmux/tmux.conf"
   fi
-
 }
 
-# ---- 2) Link your LazyVim config ----
 link_lazyvim() {
   mkdir -p "$HOME/.config"
   rm -rf "$HOME/.config/nvim"
@@ -127,14 +134,35 @@ link_lazyvim() {
 }
 
 install_fzf() {
-  git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
-  ~/.fzf/install
+  if [ -d "$HOME/.fzf" ]; then
+    say "fzf already installed in ~/.fzf"
+    return 0
+  fi
+
+  if ! have git; then
+    say "git missing; cannot install fzf"
+    return 0
+  fi
+
+  say "Installing fzf"
+  git clone --depth 1 https://github.com/junegunn/fzf.git "$HOME/.fzf"
+  "$HOME/.fzf/install" --all --no-bash --no-fish
 }
 
-install_latest_nvim
+install_alacritty_terminfo() {
+  if ! have curl || ! have tic; then
+    say "curl or tic missing; skipping alacritty terminfo install"
+    return 0
+  fi
+
+  say "Installing Alacritty terminfo"
+  curl -fsSL https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info | tic -x -
+}
+
+ensure_local_bin_on_path
+install_nvim_from_source
 link_lazyvim
 install_tmux
 link_tmux
 install_fzf
-
-curl -sSL https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info | tic -x -
+install_alacritty_terminfo
