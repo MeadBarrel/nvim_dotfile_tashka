@@ -5,7 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 say() { printf '[dotfiles] %s\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-NVIM_VERSION="${NVIM_VERSION:-v0.12.1}"
+MIN_NVIM_VERSION="${MIN_NVIM_VERSION:-0.12.1}"
 
 ensure_local_bin_on_path() {
   mkdir -p "$HOME/.local/bin"
@@ -114,6 +114,27 @@ pkg_install() {
   esac
 }
 
+ensure_curl() {
+  if have curl; then
+    return 0
+  fi
+
+  local pm
+  pm="$(detect_pkg_manager)" || {
+    say "No supported package manager found for curl"
+    return 1
+  }
+
+  case "$pm" in
+    dnf|yum)
+      pkg_install curl-minimal || pkg_install curl
+      ;;
+    *)
+      pkg_install curl
+      ;;
+  esac
+}
+
 install_nvim_build_deps() {
   local pm
   pm="$(detect_pkg_manager)" || {
@@ -123,6 +144,7 @@ install_nvim_build_deps() {
 
   say "Installing Neovim build dependencies via $pm"
   pkg_update
+  ensure_curl
 
   case "$pm" in
     apt)
@@ -131,7 +153,6 @@ install_nvim_build_deps() {
         gettext \
         cmake \
         unzip \
-        curl \
         build-essential \
         git
       ;;
@@ -144,7 +165,6 @@ install_nvim_build_deps() {
         gettext \
         cmake \
         unzip \
-        curl \
         tar \
         git
       ;;
@@ -155,7 +175,6 @@ install_nvim_build_deps() {
         gettext \
         cmake \
         unzip \
-        curl \
         git \
         tar
       ;;
@@ -166,16 +185,42 @@ install_nvim_build_deps() {
         gettext \
         cmake \
         unzip \
-        curl \
         git \
         tar
       ;;
   esac
 }
 
+get_installed_nvim_version() {
+  if ! have nvim; then
+    return 1
+  fi
+
+  nvim --version | head -n 1 | sed -E 's/^NVIM v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/'
+}
+
+version_ge() {
+  [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | tail -n 1)" = "$1" ]
+}
+
+need_nvim_build() {
+  local installed
+  if ! installed="$(get_installed_nvim_version)"; then
+    say "nvim not found; build required"
+    return 0
+  fi
+
+  if version_ge "$installed" "$MIN_NVIM_VERSION"; then
+    say "nvim $installed already satisfies minimum $MIN_NVIM_VERSION"
+    return 1
+  fi
+
+  say "nvim $installed is older than required $MIN_NVIM_VERSION; build required"
+  return 0
+}
+
 install_nvim_from_source() {
-  if have nvim; then
-    say "nvim already installed: $(nvim --version | head -n 1)"
+  if ! need_nvim_build; then
     return 0
   fi
 
@@ -185,15 +230,16 @@ install_nvim_from_source() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
-  say "Cloning Neovim ${NVIM_VERSION}"
-  git clone --depth 1 --branch "$NVIM_VERSION" https://github.com/neovim/neovim.git "$tmp/neovim"
+  say "Cloning Neovim v${MIN_NVIM_VERSION}"
+  git clone --depth 1 --branch "v${MIN_NVIM_VERSION}" https://github.com/neovim/neovim.git "$tmp/neovim"
 
-  say "Building Neovim ${NVIM_VERSION} from source"
-  cd "$tmp/neovim"
-  make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$HOME/.local"
-
-  say "Installing Neovim ${NVIM_VERSION} into $HOME/.local"
-  make install
+  say "Building Neovim v${MIN_NVIM_VERSION} from source"
+  (
+    cd "$tmp/neovim"
+    make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$HOME/.local"
+    say "Installing Neovim v${MIN_NVIM_VERSION} into $HOME/.local"
+    make install
+  )
 
   ensure_local_bin_on_path
   hash -r
@@ -255,10 +301,12 @@ install_fzf() {
 }
 
 install_alacritty_terminfo() {
-  if ! have curl || ! have tic; then
-    say "curl or tic missing; skipping alacritty terminfo install"
+  if ! have tic; then
+    say "tic missing; skipping alacritty terminfo install"
     return 0
   fi
+
+  ensure_curl
 
   say "Installing Alacritty terminfo"
   curl -fsSL https://raw.githubusercontent.com/alacritty/alacritty/master/extra/alacritty.info | tic -x -
